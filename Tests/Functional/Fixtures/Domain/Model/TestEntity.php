@@ -37,6 +37,11 @@ class TestEntity {
 	protected $name;
 
 	/**
+	 * @var integer
+	 */
+	protected $size;
+
+	/**
 	 *
 	 * @var \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestValueObjectWithReference
 	 */
@@ -83,6 +88,21 @@ class TestEntity {
 	 */
 	public function setName($name) {
 		$this->name = $name;
+	}
+
+	/**
+	 * @return integer
+	 */
+	public function getSize() {
+		return $this->size;
+	}
+
+	/**
+	 * @param integer $size
+	 * @return void
+	 */
+	public function setSize($size) {
+		$this->size = $size;
 	}
 
 	/**

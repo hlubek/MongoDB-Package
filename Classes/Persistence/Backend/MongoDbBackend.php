@@ -22,6 +22,8 @@ namespace TYPO3\MongoDB\Persistence\Backend;
  * The TYPO3 project - inspiring people to share!                         *
  *                                                                        */
 
+use \TYPO3\FLOW3\Persistence\Generic\Qom;
+
 /**
  * A MongoDB persistence backend
  *
@@ -346,18 +348,19 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 		if ($query->getConstraint() !== NULL) {
 			$this->convertConstraint($query->getConstraint(), $mongoDbQuery);
 		}
+		var_dump($mongoDbQuery);
 		return $collection->find($mongoDbQuery);
 	}
 
 	/**
 	 *
-	 * @param \TYPO3\FLOW3\Persistence\Generic\Qom\Constraint $constraint
+	 * @param Qom\Constraint $constraint
 	 * @param array &$mongoDbQuery
 	 */
-	protected function convertConstraint(\TYPO3\FLOW3\Persistence\Generic\Qom\Constraint $constraint, &$mongoDbQuery) {
-		if ($constraint instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\Comparison) {
+	protected function convertConstraint(Qom\Constraint $constraint, &$mongoDbQuery) {
+		if ($constraint instanceof Qom\Comparison) {
 			if ($constraint->getOperator() === \TYPO3\FLOW3\Persistence\QueryInterface::OPERATOR_EQUAL_TO) {
-				if ($constraint->getOperand1() instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\PropertyValue) {
+				if ($constraint->getOperand1() instanceof Qom\PropertyValue) {
 					$propertyName = $constraint->getOperand1()->getPropertyName();
 					$mongoDbQuery['properties.' . $propertyName . '.value'] = $constraint->getOperand2();
 				} else {
@@ -366,19 +369,53 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 			} else {
 				throw new \InvalidArgumentException('Operator ' . $constraint->getOperator() . ' is not supported by MongoDB backend', 1310225081);
 			}
-		}
-		/*
-		elseif($constraint instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\LogicalAnd) {
-			$emit = new \stdClass();
-			$emit->type = 'and';
-			$emit->constraints = array_merge(
-				$this->buildEmitsForConstraint($constraint->getConstraint1()),
-				$this->buildEmitsForConstraint($constraint->getConstraint2())
-			);
-			$emits[] = $emit;
-		}
-		 */
-		else {
+		} elseif ($constraint instanceof Qom\LogicalAnd) {
+			$this->convertConstraint($constraint->getConstraint1(), $mongoDbQuery);
+			$this->convertConstraint($constraint->getConstraint2(), $mongoDbQuery);
+		} elseif ($constraint instanceof Qom\LogicalOr) {
+			if (!isset($mongoDbQuery['$or'])) {
+				$mongoDbQuery['$or'] = array();
+			}
+			$orOperands = &$mongoDbQuery['$or'];
+			$orOperands[] = array();
+			$orOperand = &$orOperands[0];
+			$this->convertConstraint($constraint->getConstraint1(), $orOperand);
+			$orOperands[] = array();
+			$orOperand = &$orOperands[1];
+			$this->convertConstraint($constraint->getConstraint2(), $orOperand);
+		}  elseif ($constraint instanceof Qom\LogicalNot) {
+			if ($constraint->getConstraint() instanceof Qom\LogicalOr) {
+				$orConstraint = $constraint->getConstraint();
+				$transformedConstraint = new Qom\LogicalAnd(
+					new Qom\LogicalNot($orConstraint->getConstraint1()),
+					new Qom\LogicalNot($orConstraint->getConstraint2())
+				);
+				$this->convertConstraint($transformedConstraint, $mongoDbQuery);
+			} elseif ($constraint->getConstraint() instanceof Qom\LogicalAnd) {
+				$orConstraint = $constraint->getConstraint();
+				$transformedConstraint = new Qom\LogicalOr(
+					new Qom\LogicalNot($orConstraint->getConstraint1()),
+					new Qom\LogicalNot($orConstraint->getConstraint2())
+				);
+				$this->convertConstraint($transformedConstraint, $mongoDbQuery);
+			} elseif ($constraint->getConstraint() instanceof Qom\Comparison) {
+				$comparison = $constraint->getConstraint();
+				if ($comparison->getOperator() === \TYPO3\FLOW3\Persistence\QueryInterface::OPERATOR_EQUAL_TO) {
+					if ($comparison->getOperand1() instanceof Qom\PropertyValue) {
+						$propertyName = $comparison->getOperand1()->getPropertyName();
+						$mongoDbQuery['properties.' . $propertyName . '.value'] = array(
+							'$ne' => $comparison->getOperand2()
+						);
+					} else {
+						throw new \InvalidArgumentException('Operand ' . get_class($operand) . ' in not is not supported by MongoDB QueryView', 1310229870);
+					}
+				} else {
+					throw new \InvalidArgumentException('Operator ' . $constraint->getOperator() . ' is not supported by MongoDB backend', 1310225081);
+				}
+			} else {
+				throw new \InvalidArgumentException('Constraint ' . get_class($constraint) . ' in not is not supported by MongoDB backend', 1310229649);
+			}
+		} else {
 			throw new \InvalidArgumentException('Constraint ' . get_class($constraint) . ' is not supported by MongoDB backend', 1310225081);
 		}
 	}

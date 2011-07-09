@@ -29,5 +29,42 @@ namespace TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Repository;
  * @scope singleton
  */
 class TestEntityRepository extends \TYPO3\FLOW3\Persistence\Repository {
+
+	/**
+	 *
+	 * @param string $name
+	 * @param integer $size
+	 * @return \TYPO3\FLOW3\Persistence\Generic\QueryResult
+	 */
+	public function findByNameAndSize($name, $size) {
+		$query = $this->createQuery();
+		$query->matching($query->logicalAnd($query->equals('name', $name), $query->equals('size', $size)));
+		return $query->execute();
+	}
+
+	/**
+	 *
+	 * @param string $name
+	 * @param integer $size
+	 * @return \TYPO3\FLOW3\Persistence\Generic\QueryResult
+	 */
+	public function findByNameOrSize($name, $size) {
+		$query = $this->createQuery();
+		$query->matching($query->logicalOr($query->equals('name', $name), $query->equals('size', $size)));
+		return $query->execute();
+	}
+
+	/**
+	 *
+	 * @param string $name
+	 * @param integer $size
+	 * @return \TYPO3\FLOW3\Persistence\Generic\QueryResult
+	 */
+	public function findByNotNameOrSize($name, $size) {
+		$query = $this->createQuery();
+		$query->matching($query->logicalNot($query->logicalOr($query->equals('name', $name), $query->equals('size', $size))));
+		// Transformed to $query->logicalAnd($query->logicalNot($query->equals('name', $name)), $query->logicalNot($query->equals('size', $size))))
+		return $query->execute();
+	}
 }
 ?>

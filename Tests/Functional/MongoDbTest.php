@@ -155,6 +155,52 @@ class MongoDBTest extends \TYPO3\FLOW3\Tests\FunctionalTestCase {
 	}
 
 	/**
+	 * @test
+	 * @author Christopher Hlubek <hlubek@networkteam.com>
+	 */
+	public function queryWithLogicalAndAndOrReturnsCorrectObjects() {
+		$repository = $this->objectManager->get('TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Repository\TestEntityRepository');
+
+		$entity1 = new \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity1->setName('Foo');
+		$entity1->setSize(10);
+		$repository->add($entity1);
+
+		$entity2 = new \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity2->setName('Bar');
+		$entity2->setSize(20);
+		$repository->add($entity2);
+
+		$this->tearDown();
+
+		$entities = $repository->findByNameAndSize('Foo', 10);
+		$this->assertEquals(1, count($entities));
+		$foundEntity1 = $entities[0];
+		$this->assertEquals('Foo', $foundEntity1->getName());
+
+		$entities = $repository->findByNameAndSize('Bar', 10);
+		$this->assertEquals(0, count($entities));
+
+		$entities = $repository->findByNameOrSize('Bar', 10);
+		$this->assertEquals(2, count($entities));
+
+		$entities = $repository->findByNameOrSize('Bar', 30);
+		$this->assertEquals(1, count($entities));
+
+		$entities = $repository->findByNameOrSize('Baz', 30);
+		$this->assertEquals(0, count($entities));
+
+		$entities = $repository->findByNotNameOrSize('Bar', 10);
+		$this->assertEquals(0, count($entities));
+
+		$entities = $repository->findByNotNameOrSize('Bar', 30);
+		$this->assertEquals(1, count($entities));
+
+		$entities = $repository->findByNotNameOrSize('Baz', 30);
+		$this->assertEquals(2, count($entities));
+	}
+
+	/**
 	 * Delete the database
 	 *
 	 * @return void
@@ -164,5 +210,6 @@ class MongoDBTest extends \TYPO3\FLOW3\Tests\FunctionalTestCase {
 		$backend = $this->objectManager->get('TYPO3\FLOW3\Persistence\Generic\Backend\BackendInterface');
 		$backend->resetStorage();
 	}
+
 }
 ?>

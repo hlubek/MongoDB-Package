@@ -126,6 +126,33 @@ class MongoDBTest extends \TYPO3\FLOW3\Tests\FunctionalTestCase {
 		$this->assertEquals($identifier, $objectData['identifier']);
 	}
 
+	/**
+	 * @test
+	 * @author Christopher Hlubek <hlubek@networkteam.com>
+	 */
+	public function queryByEqualsReturnsCorrectObjects() {
+		$repository = $this->objectManager->get('TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Repository\TestEntityRepository');
+
+		$entity1 = new \TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity1->setName('Foo');
+		$repository->add($entity1);
+
+		$entity2 = new \TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity2->setName('Bar');
+		$repository->add($entity2);
+
+		$this->tearDown();
+
+		$entities = $repository->findByName('Foo');
+		$this->assertEquals(1, count($entities));
+		$foundEntity1 = $entities[0];
+		$this->assertEquals('Foo', $foundEntity1->getName());
+
+		$entities = $repository->findByName('Bar');
+		$this->assertEquals(1, count($entities));
+		$foundEntity2 = $entities[0];
+		$this->assertContains('Bar', $foundEntity2->getName());
+	}
 
 	/**
 	 * Delete the database

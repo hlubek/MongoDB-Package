@@ -282,80 +282,6 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	}
 
 	/**
-	 * Store a view inside MongoDB if it is not yet defined. Creates the
-	 * design document on the fly if it does not exist already.
-	 *
-	 * @param \TYPO3\MongoDB\ViewInterface $view
-	 * @return void
-	 * @author Christopher Hlubek <hlubek@networkteam.com>
-	 */
-	public function storeView(\TYPO3\MongoDB\ViewInterface $view) {
-		try {
-			$design = $this->doOperation(function($client) use ($view) {
-				return $client->getDocument('_design/' . $view->getDesignName());
-			});
-
-			if (isset($design->views->{$view->getViewName()})) {
-				return;
-			}
-		} catch(\TYPO3\MongoDB\Client\NotFoundException $notFoundException) {
-			$design = new \stdClass();
-			$design->_id = '_design/' . $view->getDesignName();
-			$design->views = new \stdClass();
-		}
-
-		$design->views->{$view->getViewName()} = new \stdClass();
-		$design->views->{$view->getViewName()}->map = $view->getMapFunctionSource();
-		if ($view->getReduceFunctionSource() !== NULL) {
-			$design->views->{$view->getViewName()}->reduce = $view->getReduceFunctionSource();
-		}
-
-		$this->doOperation(function($client) use ($design) {
-			if (isset($design->_rev)) {
-				$client->updateDocument($design, $design->_id);
-			} else {
-				$client->createDocument($design);
-			}
-		});
-	}
-
-	/**
-	 * Store an index inside MongoDB if it is not yet defined. Creates the
-	 * index document on the fly if it does not exist already.
-	 *
-	 * @param \TYPO3\MongoDB\Domain\Index\LuceneIndex $index
-	 * @param array $arguments
-	 * @return void
-	 * @author Felix Oertel <oertel@networkteam.com>
-	 */
-	public function storeIndex(\TYPO3\MongoDB\Domain\Index\LuceneIndex $index, array $arguments) {
-		try {
-			$design = $this->doOperation(function($client) use ($index) {
-				return $client->getDocument('_design/' . $index->getIndexName());
-			});
-
-			if (isset($design->{$index->getIndexType()}->search)) {
-				return;
-			}
-		} catch (\TYPO3\MongoDB\Client\NotFoundException $notFoundException) {
-			$design = new \stdClass();
-			$design->_id = '_design/' . $index->getIndexName();
-			$design->{$index->getIndexType()} = new \stdClass();
-		}
-
-		$design->{$index->getIndexType()}->search = new \stdClass();
-		$design->{$index->getIndexType()}->search->index = $index->getIndexFunctionSource();
-
-		$this->doOperation(function($client) use ($design) {
-			if (isset($design->_rev)) {
-				$client->updateDocument($design, $design->_id);
-			} else {
-				$client->createDocument($design);
-			}
-		});
-	}
-
-	/**
 	 * Returns the number of records matching the query.
 	 *
 	 * @param \TYPO3\FLOW3\Persistence\QueryInterface $query
@@ -363,22 +289,11 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	 * @author Christopher Hlubek <hlubek@networkteam.com>
 	 */
 	public function getObjectCountByQuery(\TYPO3\FLOW3\Persistence\QueryInterface $query) {
-		if ($query instanceof \TYPO3\MongoDB\Persistence\LuceneQuery) {
-			$result = $this->queryIndex($query->getIndex(), array('query' => $query, 'count' => TRUE));
-			if ($result !== NULL && isset($result->total_rows) && is_int($result->total_rows)) {
-				return $result->total_rows;
-			} else {
-				throw new \TYPO3\MongoDB\InvalidResultException('Could not get count from result', 1287074017, NULL, $result);
-			}
-		} else {
-			$view = new \TYPO3\MongoDB\QueryView($query);
-			$result = $this->queryView($view, array('query' => $query, 'count' => TRUE));
-			if ($result !== NULL && isset($result->rows) && is_array($result->rows)) {
-				return (count($result->rows) === 1) ? $result->rows[0]->value : 0;
-			} else {
-				throw new \TYPO3\MongoDB\InvalidResultException('Could not get count from result', 1287074016, NULL, $result);
-			}
-		}
+		$collection = $this->database->selectCollection($this->convertClassNameToCollection($query->getType()));
+
+		$cursor = $this->queryCollection($collection, $query);
+
+		return $cursor->count();
 	}
 
 	/**
@@ -408,13 +323,63 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	public function getObjectDataByQuery(\TYPO3\FLOW3\Persistence\QueryInterface $query) {
 		$collection = $this->database->selectCollection($this->convertClassNameToCollection($query->getType()));
 
+		$cursor = $this->queryCollection($collection, $query);
+
 		// TODO Use cursor properly!
-		$result = iterator_to_array($collection->find());
+		$result = iterator_to_array($cursor);
 
 		if ($result !== NULL) {
 			return $this->documentsToObjectData($result);
 		} else {
 			return array();
+		}
+	}
+
+	/**
+	 *
+	 * @param \MongoCollection $collection
+	 * @param \TYPO3\FLOW3\Persistence\QueryInterface $query
+	 * @return array
+	 */
+	protected function queryCollection(\MongoCollection $collection, \TYPO3\FLOW3\Persistence\QueryInterface $query) {
+		$mongoDbQuery = array();
+		if ($query->getConstraint() !== NULL) {
+			$this->convertConstraint($query->getConstraint(), $mongoDbQuery);
+		}
+		return $collection->find($mongoDbQuery);
+	}
+
+	/**
+	 *
+	 * @param \TYPO3\FLOW3\Persistence\Generic\Qom\Constraint $constraint
+	 * @param array &$mongoDbQuery
+	 */
+	protected function convertConstraint(\TYPO3\FLOW3\Persistence\Generic\Qom\Constraint $constraint, &$mongoDbQuery) {
+		if ($constraint instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\Comparison) {
+			if ($constraint->getOperator() === \TYPO3\FLOW3\Persistence\QueryInterface::OPERATOR_EQUAL_TO) {
+				if ($constraint->getOperand1() instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\PropertyValue) {
+					$propertyName = $constraint->getOperand1()->getPropertyName();
+					$mongoDbQuery['properties.' . $propertyName . '.value'] = $constraint->getOperand2();
+				} else {
+					throw new \InvalidArgumentException('Operand ' . get_class($operand) . ' is not supported by CouchDB QueryView', 1288606014);
+				}
+			} else {
+				throw new \InvalidArgumentException('Operator ' . $constraint->getOperator() . ' is not supported by MongoDB backend', 1310225081);
+			}
+		}
+		/*
+		elseif($constraint instanceof \TYPO3\FLOW3\Persistence\Generic\Qom\LogicalAnd) {
+			$emit = new \stdClass();
+			$emit->type = 'and';
+			$emit->constraints = array_merge(
+				$this->buildEmitsForConstraint($constraint->getConstraint1()),
+				$this->buildEmitsForConstraint($constraint->getConstraint2())
+			);
+			$emits[] = $emit;
+		}
+		 */
+		else {
+			throw new \InvalidArgumentException('Constraint ' . get_class($constraint) . ' is not supported by MongoDB backend', 1310225081);
 		}
 	}
 

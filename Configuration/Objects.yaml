@@ -1,4 +1,5 @@
 TYPO3\FLOW3\Persistence\Generic\Backend\BackendInterface:
   className: 'TYPO3\MongoDB\Persistence\Backend\MongoDbBackend'
+# NOTE Put this into your global Objects.yaml configuration in FLOW3_ROOT/Configuration/
 TYPO3\FLOW3\Persistence\PersistenceManagerInterface:
   className: 'TYPO3\FLOW3\Persistence\Generic\PersistenceManager'

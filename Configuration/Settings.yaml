@@ -1,0 +1,16 @@
+TYPO3:
+  FLOW3:
+    persistence:
+
+      # Options for the MongoDB backend
+      backendOptions:
+        # database: 'flow3_test'
+        dataSourceName: 'mongodb://localhost:27017'
+        username: ~
+        password: ~
+        driver: ~
+        path: ~
+
+      # Disable doctrine updates
+      doctrine:
+        autoUpdate: n

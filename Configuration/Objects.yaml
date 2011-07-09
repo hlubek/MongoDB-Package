@@ -1,0 +1,4 @@
+TYPO3\FLOW3\Persistence\Generic\Backend\BackendInterface:
+  className: 'TYPO3\MongoDB\Persistence\Backend\MongoDbBackend'
+TYPO3\FLOW3\Persistence\PersistenceManagerInterface:
+  className: 'TYPO3\FLOW3\Persistence\Generic\PersistenceManager'

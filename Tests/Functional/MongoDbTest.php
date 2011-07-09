@@ -131,13 +131,13 @@ class MongoDBTest extends \TYPO3\FLOW3\Tests\FunctionalTestCase {
 	 * @author Christopher Hlubek <hlubek@networkteam.com>
 	 */
 	public function queryByEqualsReturnsCorrectObjects() {
-		$repository = $this->objectManager->get('TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Repository\TestEntityRepository');
+		$repository = $this->objectManager->get('TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Repository\TestEntityRepository');
 
-		$entity1 = new \TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity1 = new \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
 		$entity1->setName('Foo');
 		$repository->add($entity1);
 
-		$entity2 = new \TYPO3\CouchDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity2 = new \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
 		$entity2->setName('Bar');
 		$repository->add($entity2);
 

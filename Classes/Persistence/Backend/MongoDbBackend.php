@@ -385,21 +385,15 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	 * Returns the object data for the given identifier.
 	 *
 	 * @param string $identifier The UUID or Hash of the object
+	 * @param string $objectType
 	 * @return array
 	 * @author Christopher Hlubek <hlubek@networkteam.com>
 	 * @todo Maybe introduce a ObjectNotFound exception?
 	 */
-	public function getObjectDataByIdentifier($identifier) {
-		try {
-			$doc = $this->doOperation(function($client) use ($identifier) {
-				return $client->getDocument($identifier);
-			});
-		} catch(\TYPO3\MongoDB\Client\NotFoundException $notFoundException) {
-			$doc = NULL;
-		}
-		if ($doc === NULL) {
-			throw new \TYPO3\FLOW3\Persistence\Exception\UnknownObjectException('Unknown object with identifier ' . $identifier, 1286902479);
-		}
+	public function getObjectDataByIdentifier($identifier, $objectType = NULL) {
+		$collection = $this->database->selectCollection($this->convertClassNameToCollection($objectType));
+		$doc = $collection->findOne(array('_id' => $identifier));
+
 		$data = $this->documentsToObjectData(array($doc));
 		return $data[0];
 	}
@@ -412,93 +406,16 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	 * @author Christopher Hlubek <hlubek@networkteam.com>
 	 */
 	public function getObjectDataByQuery(\TYPO3\FLOW3\Persistence\QueryInterface $query) {
-		if ($query instanceof \TYPO3\MongoDB\Persistence\LuceneQuery) {
-			return $this->getObjectDataByIndex($query->getIndex(), array('query' => $query));
-		} else {
-			$view = new \TYPO3\MongoDB\QueryView($query);
-			return $this->getObjectDataByView($view, array('query' => $query));
-		}
-	}
+		$collection = $this->database->selectCollection($this->convertClassNameToCollection($query->getType()));
 
-	/**
-	 * Get view results and convert documents to object data. The view can
-	 * either emit the full object data document as the value or use
-	 * the query option "include_docs=true".
-	 *
-	 * @param \TYPO3\MongoDB\ViewInterface $view The view to execute
-	 * @param array $arguments An array with arguments to the view
-	 * @return array Array of object data
-	 * @author Christopher Hlubek <hlubek@networkteam.com>
-	 */
-	public function getObjectDataByView(\TYPO3\MongoDB\ViewInterface $view, array $arguments) {
-		$result = $this->queryView($view, $arguments);
+		// TODO Use cursor properly!
+		$result = iterator_to_array($collection->find());
+
 		if ($result !== NULL) {
-			return $this->documentsToObjectData($this->resultToDocuments($result));
+			return $this->documentsToObjectData($result);
 		} else {
 			return array();
 		}
-	}
-
-	/**
-	 * Get results for a lucene query and convert documents to object data.
-	 *
-	 * @param \TYPO3\MongoDB\Domain\Index\LuceneIndex $index The index to execute
-	 * @param array $arguments An array with arguments to the index
-	 * @return array Array of object data
-	 * @author Felix Oertel <oertel@networkteam.com>
-	 */
-	public function getObjectDataByIndex(\TYPO3\MongoDB\Domain\Index\LuceneIndex $index, array $arguments) {
-		$result = $this->queryIndex($index, $arguments);
-		if ($result !== NULL) {
-			return $this->documentsToObjectData($this->resultToDocuments($result));
-		} else {
-			return array();
-		}
-	}
-
-	/**
-	 * "Execute" a view with the given arguments, these are view specific. The
-	 * view will be stored in MongoDB if it is not yet defined.
-	 *
-	 * @param \TYPO3\MongoDB\ViewInterface $view
-	 * @param array $arguments
-	 * @return object The results of the view
-	 */
-	public function queryView(\TYPO3\MongoDB\ViewInterface $view, array $arguments) {
-		$that = $this;
-		return $this->doOperation(function($client) use ($view, &$arguments, $that) {
-			try {
-				return $client->queryView($view->getDesignName(), $view->getViewName(), $view->buildViewParameters($arguments));
-			} catch(\TYPO3\MongoDB\Client\NotFoundException $notFoundException) {
-				$that->storeView($view);
-				return $client->queryView($view->getDesignName(), $view->getViewName(), $view->buildViewParameters($arguments));
-			}
-		});
-	}
-
-	/**
-	 * "Execute" a lucene query.
-	 *
-	 * @param \TYPO3\MongoDB\Domain\Index\LuceneIndex $index The index to execute
-	 * @param array $arguments An array with arguments to the index
-	 * @return object The results of the index
-	 * @author Felix Oertel <oertel@networkteam.com>
-	 * @author Christopher Hlubek <hlubek@networkteam.com>
-	 */
-	public function queryIndex(\TYPO3\MongoDB\Domain\Index\LuceneIndex $index, array $arguments) {
-		$that = $this;
-		return $this->doOperation(function($client) use ($index, &$arguments, $that) {
-			try {
-				return $client->queryIndex($index->getIndexName(), $index->getIndexType(), $index->buildIndexParameters($arguments));
-			} catch(\TYPO3\MongoDB\Client\ClientException $clientException) {
-				$information = $clientException->getInformation();
-				if ($information['reason'] === 'no_such_view') {
-					$that->storeIndex($index, $arguments);
-					return $client->queryIndex($index->getIndexName(), $index->getIndexType(), $index->buildIndexParameters($arguments));
-				}
-				throw $clientException;
-			}
-		});
 	}
 
 	/**
@@ -516,24 +433,16 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 		$data = array();
 		foreach ($documents as $document) {
 			$objectData = \TYPO3\FLOW3\Utility\Arrays::convertObjectToArray($document);
-				// MongoDB marks documents as deleted, we need to skip these documents here
-			if (isset($objectData['deleted']) && $objectData['deleted'] === TRUE) {
-				continue;
-			}
 			$objectData['identifier'] = $objectData['_id'];
-			$objectData['metadata'] = array(
-				'MongoDB_Revision' => $objectData['_rev']
-			);
 			unset($objectData['_id']);
-			unset($objectData['_rev']);
 
 			$knownObjects[$objectData['identifier']] = TRUE;
 
 			if (!isset($objectData['classname'])) {
-				throw new \TYPO3\MongoDB\InvalidResultException('Expected property "classname" in document', 1290442039, NULL, $document);
+				throw new \TYPO3\MongoDB\InvalidResultException('Expected property "classname" in document', 1310221818, NULL, $document);
 			}
 			if (!isset($this->classSchemata[$objectData['classname']])) {
-				throw new \TYPO3\MongoDB\InvalidResultException('Class "' . $objectData['classname'] . '" was not registered', 1290442092, NULL, $document);
+				throw new \TYPO3\MongoDB\InvalidResultException('Class "' . $objectData['classname'] . '" was not registered', 1310221905, NULL, $document);
 			}
 
 			$this->processResultProperties($objectData['properties'], $identifiersToFetch, $knownObjects, $this->classSchemata[$objectData['classname']]);
@@ -542,9 +451,8 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 		}
 
 		if (count($identifiersToFetch) > 0) {
-			$documents = $this->resultToDocuments($this->doOperation(function(\TYPO3\MongoDB\Client $client) use ($identifiersToFetch) {
-				return $client->getDocuments(array_keys($identifiersToFetch), array('include_docs' => TRUE));
-			}));
+			// TODO Implement eager loading of additional documents
+			$documents = array();
 
 			$fetchedObjectsData = $this->documentsToObjectData($documents, $knownObjects);
 
@@ -607,25 +515,6 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	}
 
 	/**
-	 * Convert a MongoDB result to an array of documents
-	 *
-	 * @param object $result
-	 * @return array
-	 * @author Christopher Hlubek <hlubek@networkteam.com>
-	 */
-	protected function resultToDocuments($result) {
-		if (!isset($result->rows)) {
-			throw new \TYPO3\MongoDB\InvalidResultException('Expected property "rows" in result', 1290693732, NULL, $result);
-		}
-		return array_map(function($row) {
-			if (!isset($row->doc) && !isset($row->value)) {
-				throw new \TYPO3\MongoDB\InvalidResultException('Expected property "doc" or "value" in row, got ' . var_export($row, TRUE), 1290693735, NULL, $row);
-			}
-			return isset($row->doc) && $row->doc !== NULL ? $row->doc : $row->value;
-		}, $result->rows);
-	}
-
-	/**
 	 * Do a MongoDB operation and handle error conversion and creation of
 	 * the database on the fly.
 	 *
@@ -656,7 +545,10 @@ class MongoDbBackend extends \TYPO3\FLOW3\Persistence\Generic\Backend\AbstractBa
 	 * @return void
 	 */
 	public function resetStorage() {
-		$this->client->dropDB($this->databaseName);
+		$collectioNames = $this->database->listCollections();
+		foreach ($collectioNames as $collectionName) {
+			$this->database->dropCollection($collectionName);
+		}
 	}
 
 	/**

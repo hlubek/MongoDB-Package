@@ -96,13 +96,36 @@ class MongoDBTest extends \TYPO3\FLOW3\Tests\FunctionalTestCase {
 
 		$this->tearDown();
 
-		$entities = $repository->findAll();
+		$entities = $repository->findAll()->toArray();
 
 		$this->assertEquals(1, count($entities));
 
 		$foundEntity = $entities[0];
 		$this->assertEquals('Foobar', $foundEntity->getName());
 	}
+
+	/**
+	 * @test
+	 * @author Christopher Hlubek <hlubek@networkteam.com>
+	 */
+	public function getObjectByIdentifierLoadsObjectDataFromDocument() {
+		$repository = $this->objectManager->get('TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Repository\TestEntityRepository');
+		$entity = new \TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity();
+		$entity->setName('Foobar');
+		$repository->add($entity);
+
+		$persistenceManager = $this->objectManager->get('TYPO3\FLOW3\Persistence\PersistenceManagerInterface');
+		$persistenceManager->persistAll();
+
+		$persistenceSession = $this->objectManager->get('TYPO3\FLOW3\Persistence\Generic\Session');
+		$identifier = $persistenceSession->getIdentifierByObject($entity);
+		$persistenceSession->destroy();
+
+		$objectData = $this->backend->getObjectDataByIdentifier($identifier, 'TYPO3\MongoDB\Tests\Functional\Fixtures\Domain\Model\TestEntity');
+
+		$this->assertEquals($identifier, $objectData['identifier']);
+	}
+
 
 	/**
 	 * Delete the database
